@@ -35,14 +35,26 @@ defmodule Gstats do
       |> Poison.decode!
   end
 
+  defp body_length(response) do
+    response.body |> Poison.decode! |> length
+  end
+
   def fetch_pulls(owner, repo, state \\ "open") do
     link = pulls_link(owner, repo)
     headers = ["User-Agent": "Gstats"]
     query = %{state: state}
     response = HTTPotion.get(link, [query: query, headers: headers])
+    count_on_page = body_length(response)
+    link_header = response.headers["link"]
 
-    last_link = ExLinkHeader.parse!(response.headers["link"])
-    last_page = String.to_integer(last_link.last.params.page)
+    if (link_header == nil) do
+      count_on_page
+    else
+      {:ok, links} = ExLinkHeader.parse(link_header)
+      last_page = String.to_integer(links.last.params.page)
+      last_page_response = HTTPotion.get(links.last.url, [headers: headers])
+      count_on_page * (last_page - 1) + body_length(last_page_response)
+    end
   end
 
   def stats(owner, repo) do
