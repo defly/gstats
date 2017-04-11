@@ -8,6 +8,8 @@ defmodule Gstats.Repo do
     :watchers,
     :forks,
     :open_issues,
+    :closed_issues,
+    :issues,
     :pulls,
     :open_pulls,
     :closed_pulls,
@@ -78,10 +80,15 @@ defmodule Gstats do
     repo_stats = struct(Gstats.Repo, atomized)
     open_pulls = fetch_pulls_counters(owner, repo)
     closed_pulls = fetch_pulls_counters(owner, repo, "closed")
+    open_issues = fetch_issues_counters(owner, repo)
+    closed_issues = fetch_issues_counters(owner, repo, "closed")
     %{repo_stats |
       open_pulls: open_pulls,
       closed_pulls: closed_pulls,
-      pulls: open_pulls + closed_pulls
+      pulls: open_pulls + closed_pulls,
+      open_issues: open_issues,
+      closed_issues: closed_issues,
+      issues: open_issues + closed_issues
     }
   end
 end
