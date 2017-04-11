@@ -36,12 +36,13 @@ defmodule Gstats do
   end
 
   def fetch_pulls(owner, repo, state \\ "open") do
-    link = pulls_link owner, repo
+    link = pulls_link(owner, repo)
     headers = ["User-Agent": "Gstats"]
     query = %{state: state}
     response = HTTPotion.get(link, [query: query, headers: headers])
 
-    link = ExLinkHeader.parse!(response.headers["link"])
+    last_link = ExLinkHeader.parse!(response.headers["link"])
+    last_page = String.to_integer(last_link.last.params.page)
   end
 
   def stats(owner, repo) do
