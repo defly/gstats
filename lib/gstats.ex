@@ -14,13 +14,18 @@ defmodule Gstats.Repo do
     :open_pulls,
     :closed_pulls,
     :subscribers_count,
-    :language
+    :language,
+    :license,
+    :contributors
   ]
 end
 
 defmodule Gstats do
   @root_link "https://api.github.com"
-  @user_agent_headers ["User-Agent": "Gstats"]
+  @user_agent_headers [
+    "User-Agent": "Gstats",
+    "Accept": "application/vnd.github.drax-preview+json"
+  ]
 
   def repo_link owner, repo do
     ~s{#{@root_link}/repos/#{owner}/#{repo}}
@@ -34,9 +39,13 @@ defmodule Gstats do
     ~s{#{@root_link}/repos/#{owner}/#{repo}/issues}
   end
 
+  def contributors_link owner, repo do
+    ~s{#{@root_link}/repos/#{owner}/#{repo}/contributors}
+  end
+
   def fetch_repo(owner, repo) do
     link = repo_link owner, repo
-    headers = ["User-Agent": "Gstats"]
+    headers = ["User-Agent": @user_agent_headers]
     HTTPotion.get(link, [headers: headers])
       |> Map.fetch!(:body)
       |> Poison.decode!
@@ -74,6 +83,12 @@ defmodule Gstats do
       |> get_count
   end
 
+  def fetch_contributors_counters(owner, repo) do
+    link = contributors_link(owner, repo)
+    HTTPotion.get(link, [headers: @user_agent_headers])
+      |> get_count
+  end
+
   def stats(owner, repo) do
     contents = fetch_repo(owner, repo);
     atomized = for {key, val} <- contents, into: %{}, do: {String.to_atom(key), val}
@@ -82,13 +97,15 @@ defmodule Gstats do
     closed_pulls = fetch_pulls_counters(owner, repo, "closed")
     open_issues = fetch_issues_counters(owner, repo)
     closed_issues = fetch_issues_counters(owner, repo, "closed")
+    contributors = fetch_contributors_counters(owner, repo)
     %{repo_stats |
       open_pulls: open_pulls,
       closed_pulls: closed_pulls,
       pulls: open_pulls + closed_pulls,
       open_issues: open_issues,
       closed_issues: closed_issues,
-      issues: open_issues + closed_issues
+      issues: open_issues + closed_issues,
+      contributors: contributors
     }
   end
 end
