@@ -45,8 +45,7 @@ defmodule Gstats do
 
   def fetch_repo(owner, repo) do
     link = repo_link owner, repo
-    headers = ["User-Agent": @user_agent_headers]
-    HTTPotion.get(link, [headers: headers])
+    HTTPotion.get(link, [headers: @user_agent_headers])
       |> Map.fetch!(:body)
       |> Poison.decode!
   end
