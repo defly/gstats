@@ -27,6 +27,14 @@ defmodule Gstats do
     "Accept": "application/vnd.github.drax-preview+json"
   ]
 
+  def client(url) do
+    HTTPotion.get(url, [headers: @user_agent_headers])
+  end
+
+  def client(url, query) do
+    HTTPotion.get(url, [query: query, headers: @user_agent_headers])
+  end
+
   def repo_link owner, repo do
     ~s{#{@root_link}/repos/#{owner}/#{repo}}
   end
@@ -44,14 +52,16 @@ defmodule Gstats do
   end
 
   def fetch_repo(owner, repo) do
-    link = repo_link owner, repo
-    HTTPotion.get(link, [headers: @user_agent_headers])
+    repo_link(owner, repo)
+      |> client
       |> Map.fetch!(:body)
       |> Poison.decode!
   end
 
   defp body_length(response) do
-    response.body |> Poison.decode! |> length
+    response.body
+      |> Poison.decode!
+      |> length
   end
 
   defp get_count(response) do
@@ -63,48 +73,93 @@ defmodule Gstats do
     else
       {:ok, links} = ExLinkHeader.parse(link_header)
       last_page = String.to_integer(links.last.params.page)
-      last_page_response = HTTPotion.get(links.last.url, [headers: @user_agent_headers])
+      last_page_response = client(links.last.url)
       count_on_page * (last_page - 1) + body_length(last_page_response)
     end
   end
 
-  def fetch_pulls_counters(owner, repo, state \\ "open") do
-    link = pulls_link(owner, repo)
-    query = %{state: state}
-    HTTPotion.get(link, [query: query, headers: @user_agent_headers])
+  defp counter_client(link) do
+    link
+      |> client
       |> get_count
+  end
+
+  defp counter_client(link, state) do
+    link
+      |> client(%{state: state})
+      |> get_count
+  end
+
+  def fetch_pulls_counters(owner, repo, state \\ "open") do
+    pulls_link(owner, repo)
+      |> counter_client(state)
   end
 
   def fetch_issues_counters(owner, repo, state \\ "open") do
-    link = issues_link(owner, repo)
-    query = %{state: state}
-    HTTPotion.get(link, [query: query, headers: @user_agent_headers])
-      |> get_count
+    issues_link(owner, repo)
+      |> counter_client(state)
   end
 
   def fetch_contributors_counters(owner, repo) do
-    link = contributors_link(owner, repo)
-    HTTPotion.get(link, [headers: @user_agent_headers])
-      |> get_count
+    contributors_link(owner, repo)
+      |> counter_client
+  end
+
+  def fetch_repo_stats(owner, repo) do
+    atomized = for {key, val} <- fetch_repo(owner, repo), into: %{}, do: {String.to_atom(key), val}
+    struct(Gstats.Repo, atomized)
   end
 
   def stats(owner, repo) do
-    contents = fetch_repo(owner, repo);
-    atomized = for {key, val} <- contents, into: %{}, do: {String.to_atom(key), val}
-    repo_stats = struct(Gstats.Repo, atomized)
-    open_pulls = fetch_pulls_counters(owner, repo)
-    closed_pulls = fetch_pulls_counters(owner, repo, "closed")
-    open_issues = fetch_issues_counters(owner, repo)
-    closed_issues = fetch_issues_counters(owner, repo, "closed")
-    contributors = fetch_contributors_counters(owner, repo)
-    %{repo_stats |
-      open_pulls: open_pulls,
-      closed_pulls: closed_pulls,
-      pulls: open_pulls + closed_pulls,
-      open_issues: open_issues,
-      closed_issues: closed_issues,
-      issues: open_issues + closed_issues,
-      contributors: contributors
-    }
+    # repo_stats = fetch_repo_stats(owner, repo)
+    # open_pulls = fetch_pulls_counters(owner, repo)
+
+    get_repo = fn -> fetch_repo_stats(owner, repo) end
+    get_open_pulls = fn -> %{open_pulls: fetch_pulls_counters(owner, repo)} end
+    get_closed_pulls = fn -> %{closed_pulls: fetch_pulls_counters(owner, repo, "closed")} end
+
+    task_list = [
+      get_repo,
+      get_open_pulls,
+      get_closed_pulls
+    ]
+
+    resc = fn(func) ->
+      fn() ->
+        try do
+          func.()
+          throw("wtf")
+        catch
+            x, y -> "#{x}, #{y}"
+        end
+      end
+    end
+
+    #
+    task_list
+      |> Enum.map(resc)
+      |> Enum.map(&Task.async(&1))
+      |> Enum.map(&Task.await(&1))
+      # |> Enum.reduce(&struct(&2, &1))
+
+      # task_list = [struct(Gstats.Repo), %{open_pulls: 154}];
+      # task_list
+      #   |> Enum.reduce(&struct(&2, &1))
+
+
+
+    # closed_pulls = fetch_pulls_counters(owner, repo, "closed")
+    # open_issues = fetch_issues_counters(owner, repo)
+    # closed_issues = fetch_issues_counters(owner, repo, "closed")
+    # contributors = fetch_contributors_counters(owner, repo)
+    # %{repo_stats |
+      # open_pulls: open_pulls,
+      # closed_pulls: closed_pulls,
+      # pulls: open_pulls + closed_pulls,
+      # open_issues: open_issues,
+      # closed_issues: closed_issues,
+      # issues: open_issues + closed_issues,
+      # contributors: contributors
+    # }
   end
 end
