@@ -21,18 +21,23 @@ defmodule Gstats.Repo do
 end
 
 defmodule Gstats do
+  require Logger
   @root_link "https://api.github.com"
-  @user_agent_headers [
+  @headers [
     "User-Agent": "Gstats",
     "Accept": "application/vnd.github.drax-preview+json"
   ]
+  @ibrowse [
+    # socks5_host: '127.0.0.1',
+    # socks5_port: 9050
+  ]
 
   def client(url) do
-    HTTPotion.get(url, [headers: @user_agent_headers])
+    HTTPotion.get(url, [headers: @headers, ibrowse: @ibrowse])
   end
 
   def client(url, query) do
-    HTTPotion.get(url, [query: query, headers: @user_agent_headers])
+    HTTPotion.get(url, [query: query, headers: @headers, ibrowse: @ibrowse])
   end
 
   def repo_link owner, repo do
@@ -110,56 +115,46 @@ defmodule Gstats do
     struct(Gstats.Repo, atomized)
   end
 
-  def stats(owner, repo) do
-    # repo_stats = fetch_repo_stats(owner, repo)
-    # open_pulls = fetch_pulls_counters(owner, repo)
+  defp rescue_task(func) do
+    fn() ->
+      try do
+        func.()
+      catch
+          _, reason -> {:error, reason}
+      end
+    end
+  end
 
+  defp gen_task_list(owner, repo) do
     get_repo = fn -> fetch_repo_stats(owner, repo) end
     get_open_pulls = fn -> %{open_pulls: fetch_pulls_counters(owner, repo)} end
     get_closed_pulls = fn -> %{closed_pulls: fetch_pulls_counters(owner, repo, "closed")} end
+    get_open_issues = fn -> %{open_issues: fetch_issues_counters(owner, repo)} end
+    get_closed_issues = fn -> %{closed_issues: fetch_issues_counters(owner, repo, "closed")} end
+    get_contributors = fn -> %{contributors: fetch_contributors_counters(owner, repo)} end
 
-    task_list = [
+    [
       get_repo,
       get_open_pulls,
-      get_closed_pulls
+      get_closed_pulls,
+      get_open_issues,
+      get_closed_issues,
+      get_contributors
     ]
+  end
 
-    resc = fn(func) ->
-      fn() ->
-        try do
-          func.()
-          throw("wtf")
-        catch
-            x, y -> "#{x}, #{y}"
-        end
-      end
-    end
-
-    #
-    task_list
-      |> Enum.map(resc)
+  def stats(owner, repo) do
+    task_results = gen_task_list(owner, repo)
+      |> Enum.map(&rescue_task(&1))
       |> Enum.map(&Task.async(&1))
       |> Enum.map(&Task.await(&1))
-      # |> Enum.reduce(&struct(&2, &1))
 
-      # task_list = [struct(Gstats.Repo), %{open_pulls: 154}];
-      # task_list
-      #   |> Enum.reduce(&struct(&2, &1))
-
-
-
-    # closed_pulls = fetch_pulls_counters(owner, repo, "closed")
-    # open_issues = fetch_issues_counters(owner, repo)
-    # closed_issues = fetch_issues_counters(owner, repo, "closed")
-    # contributors = fetch_contributors_counters(owner, repo)
-    # %{repo_stats |
-      # open_pulls: open_pulls,
-      # closed_pulls: closed_pulls,
-      # pulls: open_pulls + closed_pulls,
-      # open_issues: open_issues,
-      # closed_issues: closed_issues,
-      # issues: open_issues + closed_issues,
-      # contributors: contributors
-    # }
+    if Enum.any?(task_results, &match?({:error, _}, &1)) do
+      IO.inspect Enum.filter(task_results, &match?({:error, _}, &1))
+      Logger.error "One of task failed"
+      {:error, "One of task failed"}
+    else
+      Enum.reduce(task_results, &struct(&2, &1))
+    end
   end
 end
