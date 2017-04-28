@@ -69,18 +69,21 @@ defmodule Gstats do
       |> length
   end
 
+  defp get_count_with_paging(nil, count_on_page) do
+    count_on_page
+  end
+
+  defp get_count_with_paging(link_header, count_on_page) do
+    {:ok, links} = ExLinkHeader.parse(link_header)
+    last_page = String.to_integer(links.last.params.page)
+    last_page_response = client(links.last.url)
+    count_on_page * (last_page - 1) + body_length(last_page_response)
+  end
+
   defp get_count(response) do
     count_on_page = body_length(response)
     link_header = response.headers["link"]
-
-    if (link_header == nil) do
-      count_on_page
-    else
-      {:ok, links} = ExLinkHeader.parse(link_header)
-      last_page = String.to_integer(links.last.params.page)
-      last_page_response = client(links.last.url)
-      count_on_page * (last_page - 1) + body_length(last_page_response)
-    end
+    get_count_with_paging(link_header, count_on_page)
   end
 
   defp counter_client(link) do
@@ -143,18 +146,31 @@ defmodule Gstats do
     ]
   end
 
-  def stats(owner, repo) do
-    task_results = gen_task_list(owner, repo)
-      |> Enum.map(&rescue_task(&1))
-      |> Enum.map(&Task.async(&1))
-      |> Enum.map(&Task.await(&1))
+  def task_has_errors?(task_results) do
+    Enum.any?(task_results, &match?({:error, _}, &1))
+  end
 
-    if Enum.any?(task_results, &match?({:error, _}, &1)) do
+  defp process_task_results(task_results) do
+    if task_has_errors?(task_results) do
       IO.inspect Enum.filter(task_results, &match?({:error, _}, &1))
       Logger.error "One of task failed"
       {:error, "One of task failed"}
     else
       Enum.reduce(task_results, &struct(&2, &1))
     end
+  end
+
+  def stats(owner, repo) do
+    gen_task_list(owner, repo)
+      |> Enum.map(&rescue_task(&1))
+      |> Enum.map(&Task.async(&1))
+      |> Enum.map(&Task.await(&1))
+      |> process_task_results
+  end
+
+  def measure do
+    IO.inspect DateTime.utc_now().second
+    stats("facebook", "react")
+    IO.inspect DateTime.utc_now().second
   end
 end
