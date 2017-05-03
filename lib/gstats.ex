@@ -1,4 +1,8 @@
 defmodule Gstats.Repo do
+  defstruct [:owner, :name]
+end
+
+defmodule Gstats.Repo.Details do
   defstruct [
     :name,
     :description,
@@ -21,6 +25,8 @@ defmodule Gstats.Repo do
 end
 
 defmodule Gstats do
+  alias Gstats.Repo
+  alias Gstats.Repo.Details
   require Logger
   @root_link "https://api.github.com"
   @headers [
@@ -37,24 +43,24 @@ defmodule Gstats do
     HTTPotion.get(url, [query: query, headers: @headers])
   end
 
-  def repo_link owner, repo do
-    ~s{#{@root_link}/repos/#{owner}/#{repo}}
+  def repo_link(%Repo{owner: owner, name: name}) do
+    ~s{#{@root_link}/repos/#{owner}/#{name}}
   end
 
-  def pulls_link owner, repo do
-    ~s{#{@root_link}/repos/#{owner}/#{repo}/pulls}
+  def pulls_link(%Repo{owner: owner, name: name}) do
+    ~s{#{@root_link}/repos/#{owner}/#{name}/pulls}
   end
 
-  def issues_link owner, repo do
-    ~s{#{@root_link}/repos/#{owner}/#{repo}/issues}
+  def issues_link(%Repo{owner: owner, name: name}) do
+    ~s{#{@root_link}/repos/#{owner}/#{name}/issues}
   end
 
-  def contributors_link owner, repo do
-    ~s{#{@root_link}/repos/#{owner}/#{repo}/contributors}
+  def contributors_link(%Repo{owner: owner, name: name}) do
+    ~s{#{@root_link}/repos/#{owner}/#{name}/contributors}
   end
 
-  def fetch_repo(owner, repo) do
-    repo_link(owner, repo)
+  def fetch_repo(%Repo{} = repo) do
+    repo_link(repo)
       |> client
       |> Map.fetch!(:body)
       |> Poison.decode!
@@ -95,24 +101,24 @@ defmodule Gstats do
       |> get_count
   end
 
-  def fetch_pulls_counters(owner, repo, state \\ "open") do
-    pulls_link(owner, repo)
+  def fetch_pulls_counters(%Repo{} = repo, state \\ "open") do
+    pulls_link(repo)
       |> counter_client(state)
   end
 
-  def fetch_issues_counters(owner, repo, state \\ "open") do
-    issues_link(owner, repo)
+  def fetch_issues_counters(%Repo{} = repo, state \\ "open") do
+    issues_link(repo)
       |> counter_client(state)
   end
 
-  def fetch_contributors_counters(owner, repo) do
-    contributors_link(owner, repo)
+  def fetch_contributors_counters(%Repo{} = repo) do
+    contributors_link(repo)
       |> counter_client
   end
 
-  def fetch_repo_stats(owner, repo) do
-    atomized = for {key, val} <- fetch_repo(owner, repo), into: %{}, do: {String.to_atom(key), val}
-    struct(Gstats.Repo, atomized)
+  def fetch_repo_stats(%Repo{} = repo) do
+    atomized = for {key, val} <- fetch_repo(repo), into: %{}, do: {String.to_atom(key), val}
+    struct(Details, atomized)
   end
 
   defp rescue_task(func) do
@@ -125,14 +131,14 @@ defmodule Gstats do
     end
   end
 
-  defp gen_task_list(owner, repo) do
+  defp gen_task_list(%Repo{} = repo) do
     [
-      fn -> fetch_repo_stats(owner, repo) end,
-      fn -> %{open_pulls: fetch_pulls_counters(owner, repo)} end,
-      fn -> %{closed_pulls: fetch_pulls_counters(owner, repo, "closed")} end,
-      fn -> %{open_issues: fetch_issues_counters(owner, repo)} end,
-      fn -> %{closed_issues: fetch_issues_counters(owner, repo, "closed")} end,
-      fn -> %{contributors: fetch_contributors_counters(owner, repo)} end
+      fn -> fetch_repo_stats(repo) end,
+      fn -> %{open_pulls: fetch_pulls_counters(repo)} end,
+      fn -> %{closed_pulls: fetch_pulls_counters(repo, "closed")} end,
+      fn -> %{open_issues: fetch_issues_counters(repo)} end,
+      fn -> %{closed_issues: fetch_issues_counters(repo, "closed")} end,
+      fn -> %{contributors: fetch_contributors_counters(repo)} end
     ]
   end
 
@@ -150,8 +156,8 @@ defmodule Gstats do
     end
   end
 
-  def stats(owner, repo) do
-    gen_task_list(owner, repo)
+  def stats(%Repo{} = repo) do
+    gen_task_list(repo)
       |> Enum.map(&rescue_task(&1))
       |> Enum.map(&Task.async(&1))
       |> Enum.map(&Task.await(&1))
@@ -160,7 +166,7 @@ defmodule Gstats do
 
   def measure do
     startSecond = DateTime.utc_now().second
-    result = stats("facebook", "react")
+    result = stats(%Repo{owner: "facebook", name: "react"})
     endSecond = DateTime.utc_now().second
     IO.inspect "Start: #{startSecond}, End: #{endSecond}"
     result
