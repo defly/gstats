@@ -25,19 +25,16 @@ defmodule Gstats do
   @root_link "https://api.github.com"
   @headers [
     "User-Agent": "Gstats",
-    "Accept": "application/vnd.github.drax-preview+json"
-  ]
-  @ibrowse [
-    # socks5_host: '127.0.0.1',
-    # socks5_port: 9050
+    "Accept": "application/vnd.github.drax-preview+json",
+    "Authorization": ~s{token #{Application.get_env(:gstats, :token)}}
   ]
 
   def client(url) do
-    HTTPotion.get(url, [headers: @headers, ibrowse: @ibrowse])
+    HTTPotion.get(url, [headers: @headers])
   end
 
   def client(url, query) do
-    HTTPotion.get(url, [query: query, headers: @headers, ibrowse: @ibrowse])
+    HTTPotion.get(url, [query: query, headers: @headers])
   end
 
   def repo_link owner, repo do
@@ -129,20 +126,13 @@ defmodule Gstats do
   end
 
   defp gen_task_list(owner, repo) do
-    get_repo = fn -> fetch_repo_stats(owner, repo) end
-    get_open_pulls = fn -> %{open_pulls: fetch_pulls_counters(owner, repo)} end
-    get_closed_pulls = fn -> %{closed_pulls: fetch_pulls_counters(owner, repo, "closed")} end
-    get_open_issues = fn -> %{open_issues: fetch_issues_counters(owner, repo)} end
-    get_closed_issues = fn -> %{closed_issues: fetch_issues_counters(owner, repo, "closed")} end
-    get_contributors = fn -> %{contributors: fetch_contributors_counters(owner, repo)} end
-
     [
-      get_repo,
-      get_open_pulls,
-      get_closed_pulls,
-      get_open_issues,
-      get_closed_issues,
-      get_contributors
+      fn -> fetch_repo_stats(owner, repo) end,
+      fn -> %{open_pulls: fetch_pulls_counters(owner, repo)} end,
+      fn -> %{closed_pulls: fetch_pulls_counters(owner, repo, "closed")} end,
+      fn -> %{open_issues: fetch_issues_counters(owner, repo)} end,
+      fn -> %{closed_issues: fetch_issues_counters(owner, repo, "closed")} end,
+      fn -> %{contributors: fetch_contributors_counters(owner, repo)} end
     ]
   end
 
@@ -169,8 +159,10 @@ defmodule Gstats do
   end
 
   def measure do
-    IO.inspect DateTime.utc_now().second
-    stats("facebook", "react")
-    IO.inspect DateTime.utc_now().second
+    startSecond = DateTime.utc_now().second
+    result = stats("facebook", "react")
+    endSecond = DateTime.utc_now().second
+    IO.inspect "Start: #{startSecond}, End: #{endSecond}"
+    result
   end
 end
